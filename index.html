@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Make Me Brave - AI Interviewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- FIREBASE SDKs (Compat version for simplicity in plain HTML) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        /* --- ANIMATIONS --- */
+        @keyframes glow {
+            0% { box-shadow: 0 0 5px #3b82f6, 0 0 10px #3b82f6; }
+            50% { box-shadow: 0 0 20px #8b5cf6, 0 0 30px #8b5cf6; }
+            100% { box-shadow: 0 0 5px #3b82f6, 0 0 10px #3b82f6; }
+        }
+
+        .btn-glow {
+            animation: glow 2s infinite alternate;
+        }
+
+        /* Smooth fade transition between pages */
+        .fade-out { opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+        .hidden-section { display: none; }
+        .visible-section { display: flex; animation: fadeIn 0.8s forwards; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+
+        /* Mic Pulse */
+        .mic-active { animation: micPulse 1.5s infinite; background-color: #ef4444 !important; }
+        @keyframes micPulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1.1); box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        /* Glassmorphism */
+        .glass-panel {
+            background: rgba(17, 24, 39, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .glass-input {
+            background: rgba(255, 255, 255, 0.1); /* Slightly more visible for floating inputs */
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            backdrop-filter: blur(4px);
+        }
+        .glass-input:focus {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: #3b82f6;
+            outline: none;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden bg-gray-900 text-white font-sans">
+
+    <!-- ================= AUTH PAGE (Login/Signup) ================= -->
+    <section id="auth-page" class="absolute inset-0 w-full h-full z-[60] bg-black flex items-center justify-center">
+        <!-- Spline Background Iframe -->
+        <div class="absolute inset-0 w-full h-full">
+            <iframe src='https://my.spline.design/claritystream-fca6LIy07XcjaowzRow97YdP/' frameborder='0' width='100%' height='100%'></iframe>
+        </div>
+        
+        <!-- HACK: Watermark Blocker (Bottom Right) -->
+        <div class="absolute bottom-0 right-0 w-52 h-20 bg-black z-40"></div>
+
+        <!-- Floating Form Container (Wrapped in subtle glass) -->
+        <div class="w-full max-w-sm z-10 mx-4 mt-72 p-6 rounded-2xl bg-black/20 backdrop-blur-md border border-white/10 shadow-2xl">
+            <!-- Error Message -->
+            <div id="auth-error" class="hidden bg-red-500/50 border border-red-500 text-white text-xs p-3 rounded mb-4 backdrop-blur-md"></div>
+
+            <form id="auth-form" onsubmit="handleAuth(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs text-gray-200 mb-1 font-semibold drop-shadow-md">Email Address</label>
+                    <input type="email" id="email" required class="glass-input w-full p-3 rounded-lg transition shadow-lg" placeholder="you@example.com">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-200 mb-1 font-semibold drop-shadow-md">Password</label>
+                    <input type="password" id="password" required class="glass-input w-full p-3 rounded-lg transition shadow-lg" placeholder="••••••••">
+                </div>
+                
+                <div id="confirm-password-group" class="hidden">
+                    <label class="block text-xs text-gray-200 mb-1 font-semibold drop-shadow-md">Confirm Password</label>
+                    <input type="password" id="confirm-password" class="glass-input w-full p-3 rounded-lg transition shadow-lg" placeholder="••••••••">
+                </div>
+
+                <button type="submit" id="submit-btn" class="w-full bg-white/10 backdrop-blur-md hover:bg-white/20 text-white font-bold py-3 rounded-lg shadow-xl transition transform hover:scale-[1.02] border border-white/30">
+                    Sign In
+                </button>
+            </form>
+            
+            <div class="mt-6 text-center text-sm">
+                <span id="toggle-text" class="text-gray-300 drop-shadow-md">Don't have an account?</span>
+                <button onclick="toggleAuthMode()" class="text-blue-300 hover:text-blue-200 font-bold ml-1 drop-shadow-md">
+                    <span id="toggle-btn-text">Sign Up</span>
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================= LANDING PAGE ================= -->
+    <section id="landing-page" class="hidden-section absolute inset-0 w-full h-full z-50 bg-black">
+        <!-- Spline Background Iframe -->
+        <div class="absolute inset-0 w-full h-full">
+            <iframe src='https://my.spline.design/claritystream-fca6LIy07XcjaowzRow97YdP/' frameborder='0' width='100%' height='100%'></iframe>
+        </div>
+        
+        <!-- HACK: Watermark Blocker (Bottom Right) -->
+        <div class="absolute bottom-0 right-0 w-52 h-20 bg-black z-40"></div>
+        
+        <!-- Header (Logout & History) -->
+        <div class="absolute top-0 right-0 p-6 z-50 flex gap-3">
+             <button onclick="toggleHistory()" class="text-xs bg-blue-600/30 hover:bg-blue-600/50 border border-blue-400/30 text-white px-3 py-1.5 rounded-full transition flex items-center gap-2">
+                <i class="fas fa-history"></i> History
+            </button>
+             <button onclick="logout()" class="text-xs bg-white/10 hover:bg-white/20 border border-white/20 text-white px-3 py-1.5 rounded-full transition">
+                Sign Out
+            </button>
+        </div>
+
+        <!-- Overlay Content -->
+        <div class="absolute inset-0 flex flex-col items-center justify-end pb-32 pointer-events-none">
+            <!-- Start Button (Animated) -->
+            <button onclick="enterApp()" 
+                class="pointer-events-auto btn-glow bg-white/10 backdrop-blur-md border border-white/30 hover:bg-white/20 text-white font-bold py-4 px-12 rounded-full text-xl transition-all transform hover:scale-110 shadow-2xl flex items-center gap-3">
+                <span>Start Interview</span>
+                <i class="fas fa-arrow-right"></i>
+            </button>
+        </div>
+
+        <!-- HISTORY MODAL (Hidden by default) -->
+        <div id="history-modal" class="hidden absolute inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="w-full max-w-2xl h-[80vh] rounded-2xl flex flex-col shadow-2xl relative bg-black/40 backdrop-blur-xl border border-white/20">
+                <!-- Modal Header -->
+                <div class="p-4 border-b border-white/10 flex justify-between items-center">
+                    <h2 class="text-xl font-bold text-white"><i class="fas fa-history mr-2 text-blue-400"></i>Interview History</h2>
+                    <button onclick="toggleHistory()" class="text-gray-400 hover:text-white transition">
+                        <i class="fas fa-times text-2xl"></i>
+                    </button>
+                </div>
+                <!-- Modal Body -->
+                <div id="history-list" class="flex-1 overflow-y-auto p-4 space-y-3">
+                    <p class="text-center text-gray-500 mt-10">Loading history...</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================= APP INTERFACE (Voice) ================= -->
+    <section id="app-interface" class="hidden-section absolute inset-0 w-full h-full flex-col items-center bg-black">
+        
+        <!-- Spline Background for App Interface -->
+        <div class="absolute inset-0 w-full h-full z-0">
+             <iframe src='https://my.spline.design/claritystream-hRksTOsD5el1Xt5L8w0dfP55/' frameborder='0' width='100%' height='100%'></iframe>
+        </div>
+
+        <!-- HACK: Watermark Blocker (Bottom Right) -->
+        <div class="absolute bottom-0 right-0 w-52 h-20 bg-black z-10"></div>
+
+        <!-- Header -->
+        <div class="w-full glass-panel p-4 shadow-lg flex justify-between items-center z-10">
+            <!-- Return Home Button -->
+            <button onclick="returnHome()" class="text-xs bg-white/10 hover:bg-white/20 border border-white/20 text-white px-3 py-1.5 rounded-full transition flex items-center gap-2">
+                <i class="fas fa-arrow-left"></i> Home
+            </button>
+
+            <!-- Reset Session Button -->
+            <button onclick="resetInterview()" class="text-xs bg-white/10 hover:bg-white/20 border border-white/20 text-white px-3 py-1.5 rounded-full transition">
+                Reset Session
+            </button>
+        </div>
+
+        <!-- Chat Area -->
+        <div id="chat-container" class="flex-1 w-full max-w-2xl p-4 overflow-y-auto space-y-6 pb-40 z-10 scroll-smooth">
+            <div class="flex justify-start">
+                <div class="glass-panel p-4 rounded-2xl rounded-bl-none max-w-[85%] text-gray-200 shadow-lg border-l-4 border-blue-500">
+                    <p class="text-xs font-bold text-blue-400 mb-1 uppercase tracking-wider">AI Interviewer</p>
+                    Hello, I am the AI interviewer of Make Me Brave. Let's start the conversation. Please introduce yourself.
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="fixed bottom-0 w-full max-w-2xl bg-white/5 backdrop-blur-xl border-t border-white/10 p-6 rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-20">
+            <div class="flex flex-col items-center space-y-4">
+                <div id="status-text" class="text-blue-300 text-sm h-5 font-mono tracking-wide">Ready for signal...</div>
+                
+                <button id="mic-btn" onclick="toggleRecording()" 
+                    class="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md border border-white/30 text-white text-2xl shadow-[0_0_20px_rgba(255,255,255,0.1)] flex items-center justify-center transition-all hover:scale-110 hover:bg-white/20 active:scale-95">
+                    <i class="fas fa-microphone"></i>
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- LOGIC -->
+    <script>
+        // --- FIREBASE CONFIGURATION (UPDATED WITH YOUR KEYS) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyCisobOmSz-jxXi2h6Ygvf-Gn4prw7Bqgg",
+            authDomain: "make-me-brave.firebaseapp.com",
+            projectId: "make-me-brave",
+            storageBucket: "make-me-brave.firebasestorage.app",
+            messagingSenderId: "35238083766",
+            appId: "1:35238083766:web:725e65543a0eef60f13a17",
+            measurementId: "G-5XSNZF89KV"
+        };
+
+        // Initialize Firebase
+        let auth, db;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            auth = firebase.auth();
+            db = firebase.firestore();
+            console.log("Firebase initialized successfully");
+        } catch (e) {
+            console.error("Firebase Init Error:", e);
+            document.getElementById('auth-error').innerText = "Firebase Error: Check console.";
+            document.getElementById('auth-error').classList.remove('hidden');
+        }
+
+        // --- AUTH STATE MANAGEMENT ---
+        let isLoginMode = true;
+
+        function toggleAuthMode() {
+            isLoginMode = !isLoginMode;
+            const title = isLoginMode ? "Sign In" : "Sign Up";
+            const toggleText = isLoginMode ? "Don't have an account?" : "Already have an account?";
+            const toggleBtn = isLoginMode ? "Sign Up" : "Log In";
+            
+            document.getElementById('submit-btn').innerText = title;
+            document.getElementById('toggle-text').innerText = toggleText;
+            document.getElementById('toggle-btn-text').innerText = toggleBtn;
+            document.getElementById('auth-error').classList.add('hidden');
+
+            // Toggle Confirm Password visibility
+            const confirmGroup = document.getElementById('confirm-password-group');
+            const confirmInput = document.getElementById('confirm-password');
+            if (isLoginMode) {
+                confirmGroup.classList.add('hidden');
+                confirmInput.required = false;
+            } else {
+                confirmGroup.classList.remove('hidden');
+                confirmInput.required = true;
+            }
+        }
+
+        async function handleAuth(e) {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('auth-error');
+            const submitBtn = document.getElementById('submit-btn');
+            
+            errorDiv.classList.add('hidden');
+            
+            // 1. Show Loading State
+            const originalBtnText = submitBtn.innerText;
+            submitBtn.innerText = "Processing...";
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+            try {
+                if (isLoginMode) {
+                    // LOGIN
+                    await auth.signInWithEmailAndPassword(email, password);
+                } else {
+                    // SIGN UP
+                    const confirmPassword = document.getElementById('confirm-password').value;
+                    if (password !== confirmPassword) {
+                        throw new Error("Passwords do not match.");
+                    }
+
+                    const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                    const user = userCredential.user;
+                    
+                    // Store user data in Firestore
+                    await db.collection("users").doc(user.uid).set({
+                        email: email,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        interviewCount: 0
+                    });
+                }
+                // Success is handled by onAuthStateChanged listener
+            } catch (error) {
+                console.error(error);
+                
+                // 2. Reset Button
+                submitBtn.innerText = originalBtnText;
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+                // 3. Handle Errors
+                let msg = error.message;
+                if (error.code === 'auth/configuration-not-found' || error.code === 'auth/operation-not-allowed') {
+                    msg = "Configuration Error: Go to Firebase Console -> Authentication -> Sign-in method -> Enable Email/Password.";
+                } else if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
+                    msg = "Invalid Email or Password.";
+                } else if (error.code === 'auth/email-already-in-use') {
+                    msg = "This email is already registered. Try logging in.";
+                } else if (error.code === 'auth/weak-password') {
+                    msg = "Password should be at least 6 characters.";
+                }
+                
+                errorDiv.innerText = msg;
+                errorDiv.classList.remove('hidden');
+                
+                // Force alert to ensure user sees it
+                alert("Login Error: " + msg);
+            }
+        }
+        
+        function logout() {
+            auth.signOut();
+        }
+
+        // Listen for Auth Changes
+        if (auth) {
+            auth.onAuthStateChanged(user => {
+                const authPage = document.getElementById('auth-page');
+                const landingPage = document.getElementById('landing-page');
+                const appPage = document.getElementById('app-interface');
+
+                if (user) {
+                    console.log("User logged in:", user.email);
+                    // Hide Auth, Show Landing (if not already in app)
+                    authPage.style.display = 'none';
+                    if (appPage.classList.contains('visible-section')) {
+                        // stay on app
+                    } else {
+                        landingPage.classList.remove('hidden-section');
+                        landingPage.classList.add('visible-section');
+                    }
+                } else {
+                    console.log("User logged out");
+                    // Show Auth, Hide others
+                    authPage.style.display = 'flex';
+                    landingPage.classList.remove('visible-section');
+                    landingPage.classList.add('hidden-section');
+                    appPage.classList.remove('visible-section');
+                    appPage.classList.add('hidden-section');
+                }
+            });
+        }
+
+        // --- HISTORY LOGIC ---
+        function toggleHistory() {
+            const modal = document.getElementById('history-modal');
+            const list = document.getElementById('history-list');
+            
+            if (modal.classList.contains('hidden')) {
+                // OPEN HISTORY
+                modal.classList.remove('hidden');
+                
+                if (!auth.currentUser) {
+                    list.innerHTML = '<p class="text-center text-red-400">Please log in to view history.</p>';
+                    return;
+                }
+
+                // Fetch data
+                list.innerHTML = '<div class="text-center text-gray-400"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>';
+                
+                db.collection("users")
+                  .doc(auth.currentUser.uid)
+                  .collection("chat_history")
+                  .orderBy("timestamp", "desc")
+                  .limit(50) // Limit to last 50 messages to keep it fast
+                  .get()
+                  .then((querySnapshot) => {
+                      if (querySnapshot.empty) {
+                          list.innerHTML = '<p class="text-center text-gray-500 mt-10">No interview history yet.</p>';
+                          return;
+                      }
+                      
+                      let html = '';
+                      querySnapshot.forEach((doc) => {
+                          const data = doc.data();
+                          const date = data.timestamp ? data.timestamp.toDate().toLocaleString() : 'Just now';
+                          const isUser = data.sender === 'user';
+                          
+                          html += `
+                            <div class="bg-white/10 backdrop-blur-md border border-white/20 rounded-lg p-3 ${isUser ? 'border-l-4 border-l-blue-500' : 'border-l-4 border-l-purple-500'}">
+                                <div class="flex justify-between text-[10px] text-gray-400 mb-1">
+                                    <span class="uppercase font-bold tracking-wider">${isUser ? 'You' : 'AI Interviewer'}</span>
+                                    <span>${date}</span>
+                                </div>
+                                <p class="text-sm text-gray-200">${data.text}</p>
+                            </div>
+                          `;
+                      });
+                      list.innerHTML = html;
+                  })
+                  .catch((error) => {
+                      console.error("Error getting history:", error);
+                      list.innerHTML = '<p class="text-center text-red-400">Error loading history.</p>';
+                  });
+
+            } else {
+                // CLOSE HISTORY
+                modal.classList.add('hidden');
+            }
+        }
+
+        // --- NAVIGATION LOGIC ---
+        function enterApp() {
+            const landing = document.getElementById('landing-page');
+            const app = document.getElementById('app-interface');
+            
+            landing.style.opacity = '0';
+            setTimeout(() => {
+                landing.style.display = 'none';
+                app.classList.remove('hidden-section');
+                app.classList.add('visible-section');
+                
+                // UPDATED: AI Speaks the intro automatically on entry
+                const introText = "Hello, I am the AI interviewer of Make Me Brave. Let's start the conversation. Please introduce yourself.";
+                speak(introText);
+                
+            }, 500);
+        }
+
+        function returnHome() {
+            const landing = document.getElementById('landing-page');
+            const app = document.getElementById('app-interface');
+            
+            app.classList.remove('visible-section');
+            app.classList.add('hidden-section');
+            
+            landing.style.display = 'block';
+            setTimeout(() => {
+                landing.style.opacity = '1';
+            }, 10);
+        }
+
+        // --- INTERVIEW LOGIC ---
+        // UPDATED: Switched back to absolute Localhost URLs for easier local testing
+        const API_URL = "http://localhost:8000/interview/chat";
+        const RESET_URL = "http://localhost:8000/interview/reset";
+        
+        const chatContainer = document.getElementById('chat-container');
+        const micBtn = document.getElementById('mic-btn');
+        const statusText = document.getElementById('status-text');
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Your browser doesn't support speech recognition. Try Chrome.");
+        }
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+
+        let isRecording = false;
+        let autoRestartMic = false; 
+        
+        // FIX: Session ID to track resets
+        let currentSessionId = 0; 
+
+        function toggleRecording() {
+            if (isRecording) {
+                // User wants to STOP manually
+                autoRestartMic = false;
+                recognition.stop();
+                window.speechSynthesis.cancel(); 
+            } else {
+                // User wants to START
+                autoRestartMic = true;
+                recognition.start();
+            }
+        }
+
+        recognition.onstart = () => {
+            isRecording = true;
+            micBtn.classList.add('mic-active');
+            statusText.innerText = "Listening...";
+        };
+
+        recognition.onend = () => {
+            isRecording = false;
+            micBtn.classList.remove('mic-active');
+            if (!isRecording && !window.speechSynthesis.speaking && autoRestartMic) {
+                 statusText.innerText = "Processing...";
+            } else if (!autoRestartMic) {
+                 statusText.innerText = "Ready for signal...";
+            }
+        };
+
+        recognition.onresult = async (event) => {
+            const userText = event.results[0][0].transcript;
+            statusText.innerText = "Processing...";
+            
+            addMessage(userText, 'user');
+
+            // Capture the ID at the start of the request
+            const thisRequestId = currentSessionId;
+
+            try {
+                statusText.innerText = "Gemini Thinking...";
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: userText })
+                });
+                
+                const data = await response.json();
+                
+                // CHECK: If session changed while we were waiting, STOP HERE.
+                if (thisRequestId !== currentSessionId) {
+                    console.log("Ignored response from previous session.");
+                    return; 
+                }
+                
+                if (data.interviewer_text) {
+                    addMessage(data.interviewer_text, 'ai');
+                    speak(data.interviewer_text);
+                    statusText.innerText = "Reply received.";
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                statusText.innerText = "Connection Error.";
+                addMessage("⚠️ Error: Is main.py running? Make sure 'python main.py' is running in your terminal.", 'ai');
+                autoRestartMic = false; 
+            }
+        };
+
+        async function resetInterview() {
+            // 1. Increment Session ID (Invalidates any pending AI responses)
+            currentSessionId++;
+            
+            // 2. Hard Stop Everything
+            window.speechSynthesis.cancel();
+            autoRestartMic = false; 
+            if (isRecording) recognition.stop();
+
+            try {
+                await fetch(RESET_URL, { method: 'POST' });
+                chatContainer.innerHTML = '';
+                addMessage("Interview reset. Let's start over.", 'ai');
+                statusText.innerText = "Ready for signal...";
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // --- UPDATED SPEAK FUNCTION (Female Voice) ---
+        function speak(text) {
+            // Double check session before speaking
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            
+            // 1. Voice Selection Logic (Prioritize "Natural" / High Quality)
+            const voices = window.speechSynthesis.getVoices();
+            
+            // Priority list for the most human-sounding female voices available in browsers
+            let preferredVoice = 
+                voices.find(v => v.name.includes("Google US English")) || // Chrome (Best standard)
+                voices.find(v => v.name.includes("Microsoft Aria Online (Natural)")) || // Edge (Very Human)
+                voices.find(v => v.name.includes("Samantha")) || // Mac (Good)
+                voices.find(v => v.name.includes("Microsoft Zira")); // Windows (Standard)
+
+            if (preferredVoice) {
+                utterance.voice = preferredVoice;
+                console.log("Using Voice:", preferredVoice.name);
+            }
+
+            // 2. Human Tuning
+            // Lowering pitch slightly makes it sound less "synthetic/helium-like"
+            utterance.pitch = 1.0; 
+            // Slowing down slightly makes it sound more thoughtful/conversational
+            utterance.rate = 0.95; 
+
+            utterance.onend = () => {
+                if (autoRestartMic) {
+                    try {
+                        recognition.start();
+                    } catch (e) {
+                        console.log("Mic already started or blocked");
+                    }
+                }
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
+        
+        // Ensure voices are loaded (Chrome quirk)
+        window.speechSynthesis.onvoiceschanged = () => {
+            window.speechSynthesis.getVoices();
+        };
+
+        function addMessage(text, sender) {
+            // 1. SAVE TO FIRESTORE
+            if (auth.currentUser) {
+                db.collection("users")
+                  .doc(auth.currentUser.uid)
+                  .collection("chat_history")
+                  .add({
+                      text: text,
+                      sender: sender,
+                      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                      sessionId: currentSessionId
+                  })
+                  .catch(err => console.error("Failed to save msg", err));
+            }
+
+            // 2. DISPLAY IN UI
+            const div = document.createElement('div');
+            div.className = `flex ${sender === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in-up mb-4`;
+            
+            const bubble = document.createElement('div');
+            if (sender === 'user') {
+                bubble.className = "p-4 rounded-2xl rounded-br-none bg-gradient-to-r from-blue-600/40 to-purple-600/40 backdrop-blur-md border border-white/20 text-white shadow-lg max-w-[85%]";
+                bubble.innerText = text;
+            } else {
+                bubble.className = "glass-panel p-4 rounded-2xl rounded-bl-none text-gray-200 shadow-lg border-l-4 border-blue-500 max-w-[85%]";
+                bubble.innerHTML = `<p class="text-xs font-bold text-blue-400 mb-1 uppercase tracking-wider">AI Interviewer</p>${text}`;
+            }
+            
+            div.appendChild(bubble);
+            chatContainer.appendChild(div);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
