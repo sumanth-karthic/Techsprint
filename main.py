@@ -7,7 +7,7 @@ import google.generativeai as genai
 import os
 
 #API Key
-os.environ["GOOGLE_API_KEY"] = "AIzaSyBmJwJjoe8aoMbOjgg7vf4Nj07Z8EP0hBw"
+os.environ["GOOGLE_API_KEY"] = "YOUR_API_KEY"
 genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
 app = FastAPI(title="Make Me Brave - Agentic API")
@@ -98,4 +98,5 @@ def reset_interview():
         return {"error": str(e)}
 
 if __name__ == "__main__":
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
